@@ -1,3 +1,4 @@
+# Android / Kotlin
 *.iml
 .gradle
 /local.properties
@@ -13,3 +14,22 @@
 .externalNativeBuild
 .cxx
 local.properties
+*.apk
+*.aab
+*.dex
+app/build
+*.hprof
+
+# Python (mcp_server)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+*.egg-info/
+.eggs/
+dist/
+*.egg

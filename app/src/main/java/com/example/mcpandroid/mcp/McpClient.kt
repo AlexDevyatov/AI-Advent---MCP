@@ -32,6 +32,7 @@ class McpClient(
         .build()
 
     private val toolListAdapter = moshi.adapter(ToolsListResponse::class.java)
+    private val toolCallAdapter = moshi.adapter(ToolCallResponse::class.java)
 
     companion object {
         private const val MCP_PROTOCOL_VERSION = "2025-11-25"
@@ -98,6 +99,71 @@ class McpClient(
         return parsed.result.tools
     }
 
+    /**
+     * Вызов MCP-инструмента (tools/call).
+     * Агент вызывает этот метод, чтобы выполнить инструмент на сервере.
+     * Перед вызовом выполняет initialize → notifications/initialized.
+     * Блокирующий — вызывать с Dispatchers.IO.
+     */
+    fun callTool(toolName: String, arguments: Map<String, Any> = emptyMap()): Result<ToolCallResult> = runCatching {
+        val url = baseUrl.trimEnd('/').let { if (it.endsWith("/mcp")) it else "$it/mcp" }
+        try {
+            callToolInternal(url, toolName, arguments)
+        } catch (e: ConnectException) {
+            throw McpException("Не удалось подключиться к $baseUrl.", e)
+        } catch (e: SocketTimeoutException) {
+            throw McpException("Таймаут при вызове инструмента.", e)
+        } catch (e: IOException) {
+            throw McpException("Сеть: ${e.message ?: e.javaClass.simpleName}", e)
+        }
+    }
+
+    private fun callToolInternal(url: String, toolName: String, arguments: Map<String, Any>): ToolCallResult {
+        val headers = mapOf(
+            "Accept" to "application/json, text/event-stream",
+            "Content-Type" to "application/json; charset=utf-8",
+            "MCP-Protocol-Version" to MCP_PROTOCOL_VERSION,
+        )
+        ensureSession(url, headers)
+        val params = JSONObject().apply {
+            put("name", toolName)
+            put("arguments", JSONObject(arguments))
+        }
+        val requestBody = JSONObject().apply {
+            put("jsonrpc", "2.0")
+            put("id", 3)
+            put("method", "tools/call")
+            put("params", params)
+        }
+        val body = requestBody.toString()
+        val response = post(url, headers, body)
+        if (!response.isSuccessful) {
+            throw McpException("tools/call failed: ${response.code}")
+        }
+        val responseBody = response.body?.string() ?: throw McpException("Empty response")
+        val parsed = toolCallAdapter.fromJson(responseBody)
+            ?: throw McpException("Parse error: $responseBody")
+        if (parsed.error != null) {
+            throw McpException("MCP error: ${parsed.error.message}")
+        }
+        val result = parsed.result ?: throw McpException("No result in response")
+        val text = result.content?.firstOrNull()?.text ?: ""
+        return ToolCallResult(text = text, isError = result.isError ?: false)
+    }
+
+    private fun ensureSession(url: String, headers: Map<String, String>) {
+        val initBody = buildJsonRpcRequest(id = 1, method = "initialize", params = mapOf(
+            "protocolVersion" to MCP_PROTOCOL_VERSION,
+            "capabilities" to emptyMap<String, Any>(),
+            "clientInfo" to mapOf("name" to "MCPAndroid", "version" to "1.0.0"),
+        ))
+        val initResponse = post(url, headers, initBody)
+        if (!initResponse.isSuccessful) {
+            throw McpException("Initialize failed: ${initResponse.code}")
+        }
+        post(url, headers, """{"jsonrpc":"2.0","method":"notifications/initialized"}""")
+    }
+
     private fun post(url: String, headers: Map<String, String>, body: String): okhttp3.Response {
         val request = Request.Builder()
             .url(url)
@@ -125,5 +191,30 @@ data class ToolsListResponse(
 data class ToolsListResult(
     val tools: List<McpTool>,
 )
+
+/** Результат вызова инструмента (tools/call): текст из content[0] и флаг isError. */
+data class ToolCallResult(val text: String, val isError: Boolean)
+
+/** Ответ на tools/call: result с content и isError или error. */
+@com.squareup.moshi.JsonClass(generateAdapter = true)
+data class ToolCallResponse(
+    val result: ToolCallResultBody? = null,
+    val error: JsonRpcError? = null,
+)
+
+@com.squareup.moshi.JsonClass(generateAdapter = true)
+data class ToolCallResultBody(
+    val content: List<ToolCallContentItem>? = null,
+    @com.squareup.moshi.Json(name = "isError") val isError: Boolean? = null,
+)
+
+@com.squareup.moshi.JsonClass(generateAdapter = true)
+data class ToolCallContentItem(
+    val type: String? = null,
+    val text: String? = null,
+)
+
+@com.squareup.moshi.JsonClass(generateAdapter = true)
+data class JsonRpcError(val code: Int? = null, val message: String? = null)
 
 class McpException(message: String, cause: Throwable? = null) : Exception(message, cause)

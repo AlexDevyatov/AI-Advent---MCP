@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 """
-Минимальный MCP-сервер для AI Challenge — День 11.
-Реализует протокол MCP (Model Context Protocol) через Streamable HTTP:
-- initialize — согласование версии и возможностей
-- notifications/initialized — уведомление о готовности клиента
-- tools/list — список доступных инструментов (health_check, get_users)
+MCP-сервер для AI Challenge — День 11 + День 12.
+- initialize, notifications/initialized, tools/list, tools/call.
+- Инструменты: health_check, get_users, get_open_tasks (День 12 — трекер задач).
 Запуск: python server.py
 Эндпоинт: http://127.0.0.1:8765/mcp
 """
@@ -18,7 +16,11 @@ PORT = 8765
 MCP_PATH = "/mcp"
 PROTOCOL_VERSION = "2025-11-25"
 
-# Список инструментов MCP (tools) — демо для челленджа
+# Хранилище задач (in-memory, упрощённый трекер)
+TASKS = []  # список dict: {"id": int, "title": str, "status": "open" | "done"}
+_next_task_id = 1
+
+# Список инструментов MCP (tools)
 TOOLS = [
     {
         "name": "health_check",
@@ -42,6 +44,32 @@ TOOLS = [
                     "description": "Максимальное количество записей",
                 }
             },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "get_open_tasks",
+        "title": "Get Open Tasks",
+        "description": "Возвращает количество открытых задач (упрощённый трекер).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "add_task",
+        "title": "Add Task",
+        "description": "Добавляет задачу с указанным названием (статус: открыта).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Название задачи",
+                }
+            },
+            "required": ["title"],
             "additionalProperties": False,
         },
     },
@@ -96,6 +124,87 @@ def handle_tools_list(handler, payload: dict) -> dict:
     }
 
 
+def handle_tools_call(handler, payload: dict) -> dict:
+    """
+    Обработка tools/call — вызов инструмента агентом.
+    Агент отправляет method: "tools/call", params: { name, arguments }.
+    Возвращаем result в формате MCP: content (массив text/image), isError.
+    """
+    req_id = payload.get("id")
+    params = payload.get("params") or {}
+    name = params.get("name")
+    arguments = params.get("arguments") or {}
+
+    if name == "get_open_tasks":
+        # Количество и список открытых задач из хранилища TASKS
+        open_tasks_list = [t for t in TASKS if t.get("status") == "open"]
+        result_data = {
+            "open_tasks": len(open_tasks_list),
+            "tasks": [{"id": t["id"], "title": t["title"], "status": t["status"]} for t in open_tasks_list],
+        }
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {
+                "content": [
+                    {"type": "text", "text": json.dumps(result_data, ensure_ascii=False)},
+                ],
+                "isError": False,
+            },
+        }
+    if name == "add_task":
+        # Добавить задачу: arguments["title"]
+        global _next_task_id
+        title = (arguments.get("title") or "").strip()
+        if not title:
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "content": [{"type": "text", "text": json.dumps({"ok": False, "error": "title required"})}],
+                    "isError": True,
+                },
+            }
+        task_id = _next_task_id
+        _next_task_id += 1
+        TASKS.append({"id": task_id, "title": title, "status": "open"})
+        result_data = {"ok": True, "id": task_id, "title": title}
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {
+                "content": [
+                    {"type": "text", "text": json.dumps(result_data, ensure_ascii=False)},
+                ],
+                "isError": False,
+            },
+        }
+    if name == "health_check":
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {
+                "content": [{"type": "text", "text": '{"status":"ok"}'}],
+                "isError": False,
+            },
+        }
+    if name == "get_users":
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {
+                "content": [{"type": "text", "text": '{"users":[]}'}],
+                "isError": False,
+            },
+        }
+
+    return {
+        "jsonrpc": "2.0",
+        "id": req_id,
+        "error": {"code": -32602, "message": f"Unknown tool: {name}"},
+    }
+
+
 class MCPHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
@@ -113,7 +222,7 @@ class MCPHandler(http.server.BaseHTTPRequestHandler):
             send_json(self, 400, {"error": "Invalid JSON"})
             return
 
-        method = payload.get("method")
+        method = (payload.get("method") or "").strip()
         response = None
 
         if method == "initialize":
@@ -123,7 +232,10 @@ class MCPHandler(http.server.BaseHTTPRequestHandler):
             return
         elif method == "tools/list":
             response = handle_tools_list(self, payload)
+        elif method == "tools/call":
+            response = handle_tools_call(self, payload)
         else:
+            print(f"[MCP] Unknown method: {repr(method)}")
             send_json(
                 self,
                 200,
