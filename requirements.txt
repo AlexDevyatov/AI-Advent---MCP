@@ -1,0 +1,4 @@
+# Требуется Python >= 3.10 (см. README_SETUP.md)
+mcp>=1.0.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0

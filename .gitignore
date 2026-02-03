@@ -21,6 +21,8 @@ app/build
 *.hprof
 
 # Python (mcp_server)
+mcp_server/reminders.db
+mcp_server/creds.txt
 __pycache__/
 *.py[cod]
 *$py.class

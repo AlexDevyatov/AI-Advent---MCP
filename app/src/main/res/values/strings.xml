@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">MCP Android</string>
+    <string name="channel_reminders">Напоминания</string>
+    <string name="reminder_title">Напоминание</string>
 </resources>
