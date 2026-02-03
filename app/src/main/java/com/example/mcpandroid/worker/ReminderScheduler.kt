@@ -1,6 +1,7 @@
 package com.example.mcpandroid.worker
 
 import android.content.Context
+import android.util.Log
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
@@ -10,21 +11,33 @@ import java.util.concurrent.TimeUnit
 
 object ReminderScheduler {
 
+    private const val TAG = "ReminderScheduler"
     private const val TAG_ALL_REMINDERS = "reminder"
 
     fun schedule(context: Context, reminder: Reminder) {
-        val due = reminder.dueDatetime ?: return
-        if (reminder.completed) return
+        val due = reminder.dueDatetime ?: run {
+            Log.d(TAG, "schedule: reminder id=${reminder.id} has no due_datetime, skip")
+            return
+        }
+        if (reminder.completed) {
+            Log.d(TAG, "schedule: reminder id=${reminder.id} completed, skip")
+            return
+        }
         val normalized = due.replace(" ", "T").let { s ->
             if (s.contains("Z") || s.contains("+") || (s.length > 11 && s.indexOf("-", 11) >= 0)) s else s + "Z"
         }
         val instant = try {
             Instant.parse(normalized)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w(TAG, "schedule: parse failed for due=$due normalized=$normalized", e)
             return
         }
         val delayMs = instant.toEpochMilli() - System.currentTimeMillis()
-        if (delayMs <= 0) return
+        if (delayMs <= 0) {
+            Log.d(TAG, "schedule: reminder id=${reminder.id} due=$due is in the past (delayMs=$delayMs), skip")
+            return
+        }
+        Log.d(TAG, "schedule: reminder id=${reminder.id} text=${reminder.text.take(30)} due=$due delayMs=$delayMs")
         val request = OneTimeWorkRequestBuilder<ReminderWorker>()
             .setInitialDelay(delayMs, TimeUnit.MILLISECONDS)
             .setInputData(workDataOf(

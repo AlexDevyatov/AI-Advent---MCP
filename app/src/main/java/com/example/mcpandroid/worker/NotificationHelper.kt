@@ -20,8 +20,8 @@ object NotificationHelper {
         val channel = NotificationChannel(
             CHANNEL_ID,
             context.getString(R.string.channel_reminders),
-            NotificationManager.IMPORTANCE_DEFAULT
-        )
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply { setShowBadge(true); enableVibration(true) }
         context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
@@ -44,6 +44,8 @@ object NotificationHelper {
             .setContentText(text)
             .setContentIntent(pending)
             .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .build()
         context.getSystemService(NotificationManager::class.java).notify(reminderId, notification)
     }
