@@ -19,8 +19,10 @@ local.properties
 *.dex
 app/build
 *.hprof
+app/src/main/assets/creds.txt
 
-# Python (mcp_server)
+# Python (mcp_server, mcp_reminders)
+reminders.db
 mcp_server/reminders.db
 mcp_server/creds.txt
 __pycache__/

@@ -60,6 +60,17 @@ def _err(text: str) -> str:
 
 
 @mcp.tool()
+def get_current_time() -> str:
+    """
+    Возвращает текущее время в формате ISO 8601 с секундами и часовым поясом (UTC).
+    Используй перед add_reminder, если пользователь указал относительное время («через N минут», «завтра в 9» и т.д.).
+    """
+    # ISO 8601 с секундами и UTC (например 2026-02-03T14:30:00+00:00)
+    now = datetime.now(timezone.utc)
+    return now.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "+00:00"
+
+
+@mcp.tool()
 def add_reminder(text: str, due_datetime: str | None = None) -> str:
     """
     Добавить напоминание.
